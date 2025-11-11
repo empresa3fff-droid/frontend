@@ -1,0 +1,199 @@
+import React, { useState } from 'react';
+import './App.css';
+
+const App = () => {
+  const [listaClientes, setListaClientes] = useState('');
+  const [processando, setProcessando] = useState(false);
+  const [loteId, setLoteId] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [resultados, setResultados] = useState([]);
+
+  const API_URL = import.meta.env.VITE_API_URL || 'https://happy-kd63.onrender.com';
+
+  const exemploCorreto = `289.231.318-06
+FERNANDO LUCAS LTMA SERAFIM
+18996129948
+118.971.268-75
+VALDIR DE SOUZA TILL
+11978119759
+131.984.587-81
+TUANI AZEREDO NEVES
+22997846694`;
+
+  const processarClientes = async () => {
+    if (!listaClientes.trim()) {
+      alert('Cole a lista de clientes!');
+      return;
+    }
+
+    setProcessando(true);
+    setResultados([]);
+
+    try {
+      const linhas = listaClientes.split('\n').filter(linha => linha.trim() !== '');
+      const clientes = [];
+      
+      for (let i = 0; i < linhas.length; i += 3) {
+        if (i + 2 < linhas.length) {
+          clientes.push({
+            cpf: linhas[i].trim(),
+            nome: linhas[i + 1].trim(),
+            telefone: linhas[i + 2].trim()
+          });
+        }
+      }
+
+      if (clientes.length === 0) {
+        alert('Formato inválido! Use CPF, Nome, Telefone (um por linha)');
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/processar-lote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientes: clientes
+        }),
+      });
+
+      const data = await response.json();
+      setLoteId(data.lote_id);
+      setStatus(data);
+
+      verificarStatus(data.lote_id);
+
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao iniciar processamento');
+      setProcessando(false);
+    }
+  };
+
+  const verificarStatus = async (id) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/status/${id}`);
+        const data = await response.json();
+        
+        setStatus(data);
+        setResultados(data.resultados || []);
+
+        if (data.status === 'concluido' || data.status === 'erro') {
+          clearInterval(interval);
+          setProcessando(false);
+          
+          if (data.status === 'concluido') {
+            alert(`Processamento concluído! ${data.clientes_processados}/${data.total_clientes} clientes processados.`);
+          } else {
+            alert(`Erro no processamento: ${data.erro}`);
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao verificar status:', error);
+        clearInterval(interval);
+        setProcessando(false);
+      }
+    }, 3000);
+  };
+
+  const estatisticas = {
+    total: resultados.length,
+    aprovados: resultados.filter(r => r.status === 'aprovado').length,
+    rejeitados: resultados.filter(r => r.status === 'rejeitado').length
+  };
+
+  return (
+    <div className="app">
+      <header className="header">
+        <h1>Consignado Fácil</h1>
+        <p>Consulta automática para empréstimo consignado</p>
+      </header>
+
+      <div className="container">
+        <div className="input-section">
+          <h2>Inserir Lista de Clientes</h2>
+          <p>Cole a lista no formato: CPF, Nome, Telefone (um por linha)</p>
+          
+          <textarea
+            value={listaClientes}
+            onChange={(e) => setListaClientes(e.target.value)}
+            placeholder={exemploCorreto}
+            rows="12"
+            className="text-area"
+            disabled={processando}
+          />
+          
+          <button 
+            onClick={processarClientes}
+            disabled={processando || !listaClientes.trim()}
+            className="process-btn"
+          >
+            {processando ? 'Processando...' : 'Iniciar Processamento'}
+          </button>
+        </div>
+
+        {status && (
+          <div className="status-section">
+            <h3>Status do Processamento</h3>
+            <div className="status-info">
+              <p><strong>Status:</strong> {status.status}</p>
+              <p><strong>Progresso:</strong> {status.progresso}%</p>
+              <p><strong>Clientes:</strong> {status.clientes_processados}/{status.total_clientes}</p>
+              {status.erro && (
+                <p className="error"><strong>Erro:</strong> {status.erro}</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {resultados.length > 0 && (
+          <div className="stats">
+            <h3>Resultados do Processamento</h3>
+            <p>{estatisticas.total} cliente(s) - {estatisticas.aprovados} aprovação(ões) - {estatisticas.rejeitados} rejeitado(s)</p>
+          </div>
+        )}
+
+        {resultados.length > 0 && (
+          <div className="results-section">
+            <table className="results-table">
+              <thead>
+                <tr>
+                  <th>CPF</th>
+                  <th>Nome</th>
+                  <th>Telefone</th>
+                  <th>Status</th>
+                  <th>Valor Parcela</th>
+                  <th>Qtd Parcelas</th>
+                  <th>Valor Solicitado</th>
+                  <th>Empregador</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultados.map((cliente, index) => (
+                  <tr key={index} className={cliente.status}>
+                    <td>{cliente.cpf}</td>
+                    <td>{cliente.nome}</td>
+                    <td>{cliente.telefone}</td>
+                    <td>
+                      <span className={`status-badge ${cliente.status}`}>
+                        {cliente.status === 'aprovado' ? '✅ Aprovado' : '❌ Rejeitado'}
+                      </span>
+                    </td>
+                    <td>{cliente.valor_parcela || '-'}</td>
+                    <td>{cliente.qtd_parcelas || '-'}</td>
+                    <td>{cliente.valor_solicitado || '-'}</td>
+                    <td>{cliente.empregador || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
